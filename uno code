@@ -1,0 +1,128 @@
+#include <HCSR04.h>
+
+char commands[5] = "FBLRS";
+char message[4];
+char command;
+int value;
+
+// Use the updated class name for version 2.0.0
+// Trig: Pin 8, Echo: Pin 12
+UltraSonicDistanceSensor hc(8, 12); 
+
+void noOp() {}
+
+// --- MOTOR CALLBACKS ---
+
+void forwardCallback(char command, int value) {
+  driveLeft(value, true);
+  driveRight(value, true);
+}
+
+void backwardsCallback(char command, int value) {
+  driveLeft(value, false);
+  driveRight(value, false);
+}
+
+void leftCallback(char command, int value) {
+  driveLeft(value, false); // Spin left back
+  driveRight(value, true); // Spin right forward
+}
+
+void rightCallback(char command, int value) {
+  driveLeft(value, true);  // Spin left forward
+  driveRight(value, false); // Spin right back
+}
+
+void stopCallback(char command, int value) {
+  analogWrite(9, 0);
+  analogWrite(10, 0);
+  analogWrite(11, 0);
+  analogWrite(13, 0);
+}
+
+// --- LOW LEVEL DRIVE FUNCTIONS ---
+
+void driveLeft(int speed, bool direction) {
+  if (direction) {
+    analogWrite(10, speed);
+    analogWrite(9, 0);
+  } else {
+    analogWrite(10, 0);
+    analogWrite(9, speed);
+  }
+}
+
+void driveRight(int speed, bool direction) {
+  if (direction) {
+    analogWrite(11, speed);
+    analogWrite(13, 0);
+  } else {
+    analogWrite(11, 0);
+    analogWrite(13, speed);
+  }
+}
+
+// Map characters to functions
+void (*callbacks[5])(char command, int value) = {
+    forwardCallback,   // F
+    backwardsCallback, // B
+    leftCallback,      // L
+    rightCallback,     // R
+    stopCallback       // S
+};
+
+void setup() {
+  // Use 115200 to match your Raspberry Pi server.rb
+  Serial.begin(115200); 
+  stopCallback('S', 0); // Ensure motors are OFF at start
+}
+
+void loop() {
+  // 1. Listen for commands from the Pi
+  if (Serial.available() > 0) {
+    Serial.readBytesUntil('\n', message, 4);
+    handleMessage();
+  }
+  
+  // 2. Report distance to the Pi
+  writeSensorData();
+  
+  delay(50); // Small loop delay
+}
+
+void writeSensorData() {
+  Serial.print("D");
+  // Updated function name for library v2.0.0
+  Serial.println(hc.measureDistanceCm()); 
+  Serial.flush();
+}
+
+void handleMessage() {
+  command = message[0];
+  value = atoi(&message[1]);
+  
+  if (isValidCommand(command) && isValidValue(value)) {
+    int idx = commandIndex(command);
+    Serial.println("A"); // Send Ack back to Pi
+    Serial.flush();
+    (*callbacks[idx])(command, value);
+  } else {
+    // Optional error reporting
+    // Serial.println("E");
+  }
+}
+
+bool isValidCommand(char command) {
+  return commandIndex(command) != -1;
+}
+
+bool isValidValue(int value) {
+  return value >= 0 && value <= 255;
+}
+
+int commandIndex(char command) {
+  for (int i = 0; i < 5; i++) {
+    if (command == commands[i]) return i;
+  }
+  return -1;
+}
